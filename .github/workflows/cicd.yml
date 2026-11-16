@@ -1,0 +1,66 @@
+# Every push to main: train the model with MLflow, build the API image,
+# test it with real predictions, then push it to Docker Hub.
+# If any step fails (accuracy too low, API broken...), nothing is pushed and the run is red.
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # lets you re-run it by hand from the Actions tab
+
+jobs:
+  train-build-push:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: ${{ vars.DOCKERHUB_USERNAME }}/mlflow-digits
+      MLFLOW_DISABLE_AGENT_HINT: "1"
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # 1. Train and export the model (fails if accuracy < 0.95)
+      - name: Train the model
+        run: python train.py
+
+      # 2. Build the image and test it with real predictions
+      - name: Build the image
+        run: docker build -t "$IMAGE:test" .
+
+      - name: Start the API container
+        run: docker run -d --name model-api -p 8080:8080 "$IMAGE:test"
+
+      - name: Smoke test the API
+        run: python tests/smoke_test.py http://localhost:8080
+
+      - name: Show container logs on failure
+        if: failure()
+        run: docker logs model-api || true
+
+      # 3. Tests passed: push the exact image that was tested
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Tag and push the image
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          docker tag "$IMAGE:test" "$IMAGE:latest"
+          docker tag "$IMAGE:test" "$IMAGE:$SHORT_SHA"
+          docker push "$IMAGE:latest"
+          docker push "$IMAGE:$SHORT_SHA"
+
+      - name: Stop the container
+        if: always()
+        run: docker rm -f model-api || true

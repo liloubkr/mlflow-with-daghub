@@ -3,5 +3,8 @@ mlflow.db
 mlruns/
 mlartifacts/
 
+# Modèle exporté par train.py (reconstruit par la CI)
+model/
+
 # Jupyter
 .ipynb_checkpoints/

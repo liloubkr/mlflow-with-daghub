@@ -1,0 +1,4 @@
+# L'image n'a besoin que du modèle exporté et des dépendances
+*
+!model/
+!requirements.txt
