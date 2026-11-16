@@ -12,15 +12,33 @@ jobs:
   train-build-push:
     runs-on: ubuntu-latest
     env:
+      LOCAL_IMAGE: mlflow-digits:ci # name used for build + test, before pushing
       IMAGE: ${{ vars.DOCKERHUB_USERNAME }}/mlflow-digits
       MLFLOW_DISABLE_AGENT_HINT: "1"
 
     steps:
+      - name: Check Docker Hub settings
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          HAS_TOKEN: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+        run: |
+          ok=true
+          if [ -z "$DOCKERHUB_USERNAME" ]; then
+            echo "::error::Repository variable DOCKERHUB_USERNAME is missing (Settings > Secrets and variables > Actions > Variables)"
+            ok=false
+          fi
+          if [ "$HAS_TOKEN" != "true" ]; then
+            echo "::error::Repository secret DOCKERHUB_TOKEN is missing (Settings > Secrets and variables > Actions > Secrets)"
+            ok=false
+          fi
+          $ok && echo "Docker Hub user: $DOCKERHUB_USERNAME"
+          $ok
+
       - name: Check out the code
         uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
@@ -34,10 +52,10 @@ jobs:
 
       # 2. Build the image and test it with real predictions
       - name: Build the image
-        run: docker build -t "$IMAGE:test" .
+        run: docker build -t "$LOCAL_IMAGE" .
 
       - name: Start the API container
-        run: docker run -d --name model-api -p 8080:8080 "$IMAGE:test"
+        run: docker run -d --name model-api -p 8080:8080 "$LOCAL_IMAGE"
 
       - name: Smoke test the API
         run: python tests/smoke_test.py http://localhost:8080
@@ -56,8 +74,8 @@ jobs:
       - name: Tag and push the image
         run: |
           SHORT_SHA="${GITHUB_SHA::7}"
-          docker tag "$IMAGE:test" "$IMAGE:latest"
-          docker tag "$IMAGE:test" "$IMAGE:$SHORT_SHA"
+          docker tag "$LOCAL_IMAGE" "$IMAGE:latest"
+          docker tag "$LOCAL_IMAGE" "$IMAGE:$SHORT_SHA"
           docker push "$IMAGE:latest"
           docker push "$IMAGE:$SHORT_SHA"
 
