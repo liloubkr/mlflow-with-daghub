@@ -1,0 +1,7 @@
+# MLflow (tracking local)
+mlflow.db
+mlruns/
+mlartifacts/
+
+# Jupyter
+.ipynb_checkpoints/
